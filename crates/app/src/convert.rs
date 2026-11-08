@@ -12,7 +12,7 @@ pub fn to_render_grid(snapshot: &Snapshot, theme: &Theme) -> RenderGrid {
                 resolve(cell.fg, theme, theme.foreground),
                 resolve(cell.bg, theme, theme.background),
             );
-            if cell.inverse {
+            if cell.inverse != cell.selected {
                 std::mem::swap(&mut fg, &mut bg);
             }
             cells.push(RenderCell {

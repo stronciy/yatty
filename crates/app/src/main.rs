@@ -7,10 +7,10 @@ use config::{Settings, Theme};
 use render::{FontSpec, Renderer};
 use term::{Session, SpawnOptions};
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::ModifiersState;
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -26,6 +26,9 @@ struct App {
     settings: Settings,
     state: Option<State>,
     modifiers: ModifiersState,
+    pointer: PhysicalPosition<f64>,
+    dragging: bool,
+    clipboard: Option<arboard::Clipboard>,
 }
 
 impl App {
@@ -91,8 +94,51 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = position;
+                if self.dragging {
+                    let (row, col, right) = cell_at(state, self.pointer);
+                    state.session.update_selection(row, col, right);
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: button_state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.dragging = button_state == ElementState::Pressed;
+                if self.dragging {
+                    let (row, col, right) = cell_at(state, self.pointer);
+                    state.session.start_selection(row, col, right);
+                } else if state
+                    .session
+                    .selection_text()
+                    .is_none_or(|text| text.is_empty())
+                {
+                    state.session.clear_selection();
+                }
+                state.window.request_redraw();
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if let Some(bytes) = input::key_bytes(&event, self.modifiers) {
+                if self.modifiers.super_key() {
+                    if let Some(clipboard) = self.clipboard.as_mut() {
+                        match event.physical_key {
+                            PhysicalKey::Code(KeyCode::KeyC) => {
+                                if let Some(text) = state.session.selection_text() {
+                                    let _ = clipboard.set_text(text);
+                                }
+                            }
+                            PhysicalKey::Code(KeyCode::KeyV) => {
+                                if let Ok(text) = clipboard.get_text() {
+                                    let _ = state.session.write(text.as_bytes());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if let Some(bytes) = input::key_bytes(&event, self.modifiers) {
+                    state.session.clear_selection();
                     let _ = state.session.write(&bytes);
                 }
             }
@@ -119,6 +165,18 @@ impl ApplicationHandler for App {
     }
 }
 
+fn cell_at(state: &State, pointer: PhysicalPosition<f64>) -> (usize, usize, bool) {
+    let PhysicalSize { width, height } = state.window.inner_size();
+    let (cols, rows) = App::grid_size(&state.renderer, width, height);
+    let (cell_w, cell_h) = state.renderer.cell_size();
+    let x = pointer.x.max(0.0) as f32;
+    let y = pointer.y.max(0.0) as f32;
+    let col = ((x / cell_w) as usize).min(cols as usize - 1);
+    let row = ((y / cell_h) as usize).min(rows as usize - 1);
+    let right_half = x - col as f32 * cell_w > cell_w / 2.0;
+    (row, col, right_half)
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -136,6 +194,9 @@ fn main() {
         settings,
         state: None,
         modifiers: ModifiersState::default(),
+        pointer: PhysicalPosition::new(0.0, 0.0),
+        dragging: false,
+        clipboard: arboard::Clipboard::new().ok(),
     };
     event_loop.run_app(&mut app).expect("run app");
 }

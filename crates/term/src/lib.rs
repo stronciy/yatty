@@ -8,6 +8,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term};
@@ -69,6 +71,7 @@ pub struct Cell {
     pub inverse: bool,
     pub wide: bool,
     pub wide_spacer: bool,
+    pub selected: bool,
 }
 
 impl Cell {
@@ -83,6 +86,7 @@ impl Cell {
             inverse: false,
             wide: false,
             wide_spacer: false,
+            selected: false,
         }
     }
 }
@@ -176,6 +180,30 @@ impl Session {
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
+    pub fn start_selection(&self, row: usize, col: usize, right_half: bool) {
+        let point = viewport_point(row, col);
+        self.term.lock().selection = Some(Selection::new(
+            SelectionType::Simple,
+            point,
+            side(right_half),
+        ));
+    }
+
+    pub fn update_selection(&self, row: usize, col: usize, right_half: bool) {
+        let point = viewport_point(row, col);
+        if let Some(selection) = self.term.lock().selection.as_mut() {
+            selection.update(point, side(right_half));
+        }
+    }
+
+    pub fn clear_selection(&self) {
+        self.term.lock().selection = None;
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        self.term.lock().selection_to_string()
+    }
+
     pub fn events(&self) -> &Receiver<Event> {
         &self.events
     }
@@ -186,6 +214,7 @@ impl Session {
         let cols = term.columns();
         let content = term.renderable_content();
         let offset = content.display_offset as i32;
+        let selection = content.selection;
 
         let mut lines = vec![vec![Cell::blank(); cols]; rows];
         for indexed in content.display_iter {
@@ -195,6 +224,7 @@ impl Session {
                 && let Some(slot) = lines.get_mut(row).and_then(|line| line.get_mut(col))
             {
                 *slot = convert_cell(indexed.cell);
+                slot.selected = selection.is_some_and(|range| range.contains(indexed.point));
             }
         }
 
@@ -211,6 +241,14 @@ impl Drop for Session {
     fn drop(&mut self) {
         let _ = self.sender.send(Msg::Shutdown);
     }
+}
+
+fn viewport_point(row: usize, col: usize) -> Point {
+    Point::new(Line(row as i32), Column(col))
+}
+
+fn side(right_half: bool) -> Side {
+    if right_half { Side::Right } else { Side::Left }
 }
 
 fn window_size(cols: u16, rows: u16) -> WindowSize {
@@ -233,6 +271,7 @@ fn convert_cell(cell: &alacritty_terminal::term::cell::Cell) -> Cell {
         inverse: cell.flags.contains(Flags::INVERSE),
         wide: cell.flags.contains(Flags::WIDE_CHAR),
         wide_spacer: cell.flags.contains(Flags::WIDE_CHAR_SPACER),
+        selected: false,
     }
 }
 
