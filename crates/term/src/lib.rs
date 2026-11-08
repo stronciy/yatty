@@ -51,6 +51,7 @@ pub struct SpawnOptions {
     pub cwd: Option<PathBuf>,
     pub cols: u16,
     pub rows: u16,
+    pub env: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,10 +148,14 @@ impl Session {
                 .map(|(program, args)| Shell::new(program, args)),
             working_directory: options.cwd.clone(),
             drain_on_exit: true,
-            env: HashMap::from([
-                ("TERM".to_string(), "xterm-256color".to_string()),
-                ("COLORTERM".to_string(), "truecolor".to_string()),
-            ]),
+            env: HashMap::from_iter(
+                [
+                    ("TERM".to_string(), "xterm-256color".to_string()),
+                    ("COLORTERM".to_string(), "truecolor".to_string()),
+                ]
+                .into_iter()
+                .chain(options.env.iter().cloned()),
+            ),
         };
         let pty = tty::new(&pty_options, window_size(options.cols, options.rows), 0)?;
         let pid = pty.child().id();

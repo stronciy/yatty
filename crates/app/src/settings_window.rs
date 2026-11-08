@@ -408,6 +408,12 @@ impl Form {
                 changed |= ui
                     .checkbox(&mut self.draft.footer.enabled, "Show footer")
                     .changed();
+                changed |= ui
+                    .checkbox(
+                        &mut self.draft.prompt.enabled,
+                        "oh-my-zsh style prompt (new tabs)",
+                    )
+                    .changed();
                 ui.add_space(4.0);
                 ui.label(
                     "The footer shows encoding, shell, folder, git branch, time and terminal size.",

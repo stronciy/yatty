@@ -71,6 +71,18 @@ pub struct Footer {
     pub enabled: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct Prompt {
+    pub enabled: bool,
+}
+
+impl Default for Prompt {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 impl Default for Footer {
     fn default() -> Self {
         Self { enabled: true }
@@ -83,6 +95,7 @@ pub struct Config {
     pub font: Font,
     pub colors: Colors,
     pub footer: Footer,
+    pub prompt: Prompt,
 }
 
 #[derive(Clone, Debug, PartialEq)]

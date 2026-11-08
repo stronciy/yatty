@@ -3,6 +3,7 @@ mod footer;
 mod input;
 mod menu;
 mod settings_window;
+mod shell;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,6 +59,17 @@ impl App {
             size_px: self.settings.font.size * scale,
             ligatures: self.settings.font.ligatures,
         }
+    }
+
+    fn shell_env(&self) -> Vec<(String, String)> {
+        if !self.config.prompt.enabled {
+            return Vec::new();
+        }
+        let shell = std::env::var("SHELL").unwrap_or_default();
+        shell::zsh_env(&self.config_dir, &shell).unwrap_or_else(|err| {
+            tracing::warn!("shell prompt disabled: {err}");
+            Vec::new()
+        })
     }
 
     fn apply_saved(&mut self, config: Config) {
@@ -126,6 +138,7 @@ impl ApplicationHandler for App {
             cwd: None,
             cols,
             rows: rows.saturating_sub(reserved).max(1),
+            env: self.shell_env(),
         })
         .expect("spawn shell");
         let footer = self

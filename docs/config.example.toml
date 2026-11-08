@@ -7,6 +7,12 @@ size = 14.0                 # логический размер в пункта�
 weight = 400                # 400 = Regular, 700 = Bold
 ligatures = true            # ligatures (->, =>, !=)
 
+[footer]
+enabled = true            # нижняя полоса: кодировка, шелл, папка, git, время, размер
+
+[prompt]
+enabled = true              # приглашение zsh в стиле oh-my-zsh (robbyrussell), для новых вкладок
+
 [colors]
 # Тема из ~/.config/yatty/themes/<name>.toml. "default" — встроенная тема.
 theme = "default"
