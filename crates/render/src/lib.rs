@@ -36,3 +36,16 @@ impl RenderGrid {
         &self.cells[row * self.cols + col]
     }
 }
+
+pub fn monospace_families() -> Vec<String> {
+    let font_system = cosmic_text::FontSystem::new();
+    let mut names: Vec<String> = font_system
+        .db()
+        .faces()
+        .filter(|face| face.monospaced)
+        .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}

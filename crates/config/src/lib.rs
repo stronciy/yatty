@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const DEFAULT_THEME: &str = "default";
 
@@ -22,6 +22,12 @@ impl FromStr for Rgb {
     }
 }
 
+impl Serialize for Rgb {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("#{:02X}{:02X}{:02X}", self.0, self.1, self.2))
+    }
+}
+
 impl<'de> Deserialize<'de> for Rgb {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
@@ -29,7 +35,7 @@ impl<'de> Deserialize<'de> for Rgb {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Font {
     pub family: String,
@@ -49,7 +55,7 @@ impl Default for Font {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Colors {
     pub theme: Option<String>,
@@ -59,7 +65,7 @@ pub struct Colors {
     pub palette: Option<Vec<Rgb>>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Footer {
     pub enabled: bool,
@@ -71,7 +77,7 @@ impl Default for Footer {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub font: Font,
@@ -148,10 +154,15 @@ pub struct Settings {
 
 impl Settings {
     pub fn load(config_dir: &Path) -> Self {
-        let mut warnings = Vec::new();
-        let config =
-            read_config_file(&config_dir.join("config.toml"), &mut warnings).unwrap_or_default();
+        let (config, mut warnings) = load_config(config_dir);
+        let mut settings = Self::from_config(&config, config_dir);
+        warnings.append(&mut settings.warnings);
+        settings.warnings = warnings;
+        settings
+    }
 
+    pub fn from_config(config: &Config, config_dir: &Path) -> Self {
+        let mut warnings = Vec::new();
         let mut theme = Theme::default();
         let theme_name = config.colors.theme.as_deref().unwrap_or(DEFAULT_THEME);
         if theme_name != DEFAULT_THEME {
@@ -166,7 +177,7 @@ impl Settings {
         }
         theme.apply(&config.colors, &mut warnings);
 
-        let mut font = config.font;
+        let mut font = config.font.clone();
         if font.family.trim().is_empty() {
             warnings.push("font.family is empty, using default".into());
             font.family = Font::default().family;
@@ -182,10 +193,35 @@ impl Settings {
         Self {
             font,
             theme,
-            footer: config.footer,
+            footer: config.footer.clone(),
             warnings,
         }
     }
+}
+
+pub fn load_config(config_dir: &Path) -> (Config, Vec<String>) {
+    let mut warnings = Vec::new();
+    let config =
+        read_config_file(&config_dir.join("config.toml"), &mut warnings).unwrap_or_default();
+    (config, warnings)
+}
+
+pub fn save_config(config_dir: &Path, config: &Config) -> std::io::Result<()> {
+    fs::create_dir_all(config_dir)?;
+    let text = toml::to_string_pretty(config).map_err(std::io::Error::other)?;
+    fs::write(config_dir.join("config.toml"), text)
+}
+
+pub fn available_themes(config_dir: &Path) -> Vec<String> {
+    let mut themes = vec![DEFAULT_THEME.to_string()];
+    if let Ok(entries) = fs::read_dir(config_dir.join("themes")) {
+        let mut names: Vec<String> = entries
+            .filter_map(|entry| entry.ok()?.path().file_stem()?.to_str().map(str::to_owned))
+            .collect();
+        names.sort();
+        themes.extend(names.into_iter().filter(|name| name != DEFAULT_THEME));
+    }
+    themes
 }
 
 pub fn default_config_dir() -> PathBuf {
@@ -308,6 +344,22 @@ mod tests {
         let settings = Settings::load(&dir);
         assert_eq!(settings.font, Font::default());
         assert_eq!(settings.warnings.len(), 1);
+    }
+
+    #[test]
+    fn saved_config_round_trips() {
+        let dir = temp_dir("roundtrip");
+        let mut config = Config::default();
+        config.font.family = "Menlo".into();
+        config.font.size = 16.0;
+        config.colors.theme = Some("night".into());
+        config.colors.background = Some(Rgb(1, 2, 3));
+        config.colors.palette = Some(Theme::default().palette.to_vec());
+        config.footer.enabled = false;
+        save_config(&dir, &config).unwrap();
+        let (loaded, warnings) = load_config(&dir);
+        assert_eq!(loaded, config);
+        assert!(warnings.is_empty());
     }
 
     #[test]

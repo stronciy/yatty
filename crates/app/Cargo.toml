@@ -5,11 +5,18 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = "1.0.104"
 arboard = "3.7.0"
 config = { version = "0.1.0", path = "../config" }
+egui = { version = "0.37", features = ["default_fonts"] }
+egui-wgpu = "0.37"
+egui-winit = "0.37"
 libc = "0.2.191"
+muda = "0.21"
+pollster = "1.0.1"
 render = { version = "0.1.0", path = "../render" }
 term = { version = "0.1.0", path = "../term" }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+wgpu = "30"
 winit = "0.30.13"

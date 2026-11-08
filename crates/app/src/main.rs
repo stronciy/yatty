@@ -1,11 +1,16 @@
 mod convert;
 mod footer;
 mod input;
+mod menu;
+mod settings_window;
 
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use config::{Settings, Theme};
+use config::{Config, Settings, Theme};
 use render::{FontSpec, Renderer};
+use settings_window::{Outcome, SettingsWindow};
 use term::{Session, SpawnOptions};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
@@ -17,7 +22,7 @@ use winit::window::{Window, WindowId};
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 struct State {
-    window: std::sync::Arc<Window>,
+    window: Arc<Window>,
     renderer: Renderer,
     session: Session,
     theme: Theme,
@@ -26,8 +31,12 @@ struct State {
 }
 
 struct App {
+    config_dir: PathBuf,
+    config: Config,
     settings: Settings,
     state: Option<State>,
+    menu: Option<menu::MenuBar>,
+    settings_window: Option<SettingsWindow>,
     modifiers: ModifiersState,
     pointer: PhysicalPosition<f64>,
     dragging: bool,
@@ -41,6 +50,51 @@ impl App {
         let rows = (height as f32 / cell_h).floor().max(1.0) as u16;
         (cols, rows)
     }
+
+    fn font_spec(&self, scale: f32) -> FontSpec {
+        FontSpec {
+            family: self.settings.font.family.clone(),
+            weight: self.settings.font.weight,
+            size_px: self.settings.font.size * scale,
+            ligatures: self.settings.font.ligatures,
+        }
+    }
+
+    fn apply_saved(&mut self, config: Config) {
+        self.config = config;
+        self.settings = Settings::from_config(&self.config, &self.config_dir);
+        for warning in &self.settings.warnings {
+            tracing::warn!("config: {warning}");
+        }
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+        let scale = state.window.scale_factor() as f32;
+        let size = state.window.inner_size();
+        let font = FontSpec {
+            family: self.settings.font.family.clone(),
+            weight: self.settings.font.weight,
+            size_px: self.settings.font.size * scale,
+            ligatures: self.settings.font.ligatures,
+        };
+        match Renderer::new(state.window.clone(), size.width, size.height, font) {
+            Ok(renderer) => state.renderer = renderer,
+            Err(err) => tracing::error!("cannot apply font: {err}"),
+        }
+        state.theme = self.settings.theme.clone();
+        state.footer = match (self.settings.footer.enabled, state.footer.take()) {
+            (true, Some(footer)) => Some(footer),
+            (true, None) => Some(footer::Footer::start(state.session.pid())),
+            (false, _) => None,
+        };
+        let (cols, rows) = Self::grid_size(&state.renderer, size.width, size.height);
+        let _ = state.session.resize(
+            cols,
+            rows.saturating_sub(u16::from(state.footer.is_some()))
+                .max(1),
+        );
+        state.window.request_redraw();
+    }
 }
 
 impl ApplicationHandler for App {
@@ -48,22 +102,23 @@ impl ApplicationHandler for App {
         if self.state.is_some() {
             return;
         }
+        if self.menu.is_none() {
+            self.menu = Some(menu::MenuBar::install());
+        }
         let attributes = Window::default_attributes()
             .with_title("yatty")
             .with_inner_size(LogicalSize::new(1100.0, 700.0));
-        let window =
-            std::sync::Arc::new(event_loop.create_window(attributes).expect("create window"));
+        let window = Arc::new(event_loop.create_window(attributes).expect("create window"));
         let scale = window.scale_factor() as f32;
         let size = window.inner_size();
 
-        let font = FontSpec {
-            family: self.settings.font.family.clone(),
-            weight: self.settings.font.weight,
-            size_px: self.settings.font.size * scale,
-            ligatures: self.settings.font.ligatures,
-        };
-        let renderer =
-            Renderer::new(window.clone(), size.width, size.height, font).expect("renderer");
+        let renderer = Renderer::new(
+            window.clone(),
+            size.width,
+            size.height,
+            self.font_spec(scale),
+        )
+        .expect("renderer");
         let (cols, rows) = Self::grid_size(&renderer, size.width, size.height);
         let reserved = u16::from(self.settings.footer.enabled);
         let session = Session::spawn(&SpawnOptions {
@@ -90,7 +145,19 @@ impl ApplicationHandler for App {
         });
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if let Some(settings) = self.settings_window.as_mut()
+            && settings.id() == id
+        {
+            let outcome = settings.handle_event(&event);
+            match outcome {
+                Outcome::Nothing => {}
+                Outcome::Close => self.settings_window = None,
+                Outcome::Saved(config) => self.apply_saved(config),
+            }
+            return;
+        }
+
         let Some(state) = self.state.as_mut() else {
             return;
         };
@@ -169,6 +236,28 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.settings_requested())
+        {
+            match self.settings_window.as_ref() {
+                Some(settings) => settings.window.focus_window(),
+                None => {
+                    match SettingsWindow::open(event_loop, self.config_dir.clone(), &self.config) {
+                        Ok(settings) => self.settings_window = Some(settings),
+                        Err(err) => tracing::error!("cannot open settings: {err}"),
+                    }
+                }
+            }
+        }
+
+        if let Some(settings) = self.settings_window.as_ref()
+            && settings.repaint_due()
+        {
+            settings.window.request_redraw();
+        }
+
         let Some(state) = self.state.as_mut() else {
             return;
         };
@@ -209,15 +298,24 @@ fn main() {
         )
         .init();
 
-    let settings = Settings::load(&config::default_config_dir());
+    let config_dir = config::default_config_dir();
+    let (config, warnings) = config::load_config(&config_dir);
+    for warning in &warnings {
+        tracing::warn!("config: {warning}");
+    }
+    let settings = Settings::from_config(&config, &config_dir);
     for warning in &settings.warnings {
         tracing::warn!("config: {warning}");
     }
 
     let event_loop = EventLoop::new().expect("event loop");
     let mut app = App {
+        config_dir,
+        config,
         settings,
         state: None,
+        menu: None,
+        settings_window: None,
         modifiers: ModifiersState::default(),
         pointer: PhysicalPosition::new(0.0, 0.0),
         dragging: false,
