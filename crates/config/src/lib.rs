@@ -59,11 +59,24 @@ pub struct Colors {
     pub palette: Option<Vec<Rgb>>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Footer {
+    pub enabled: bool,
+}
+
+impl Default for Footer {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub font: Font,
     pub colors: Colors,
+    pub footer: Footer,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,6 +142,7 @@ impl Theme {
 pub struct Settings {
     pub font: Font,
     pub theme: Theme,
+    pub footer: Footer,
     pub warnings: Vec<String>,
 }
 
@@ -168,6 +182,7 @@ impl Settings {
         Self {
             font,
             theme,
+            footer: config.footer,
             warnings,
         }
     }

@@ -124,6 +124,7 @@ pub struct Session {
     term: Arc<FairMutex<Term<Proxy>>>,
     sender: EventLoopSender,
     events: Receiver<Event>,
+    pid: u32,
 }
 
 impl Session {
@@ -152,6 +153,7 @@ impl Session {
             ]),
         };
         let pty = tty::new(&pty_options, window_size(options.cols, options.rows), 0)?;
+        let pid = pty.child().id();
 
         let event_loop = EventLoop::new(term.clone(), Proxy(tx), pty, true, false)?;
         let sender = event_loop.channel();
@@ -161,6 +163,7 @@ impl Session {
             term,
             sender,
             events,
+            pid,
         })
     }
 
@@ -178,6 +181,10 @@ impl Session {
         self.sender
             .send(Msg::Resize(window_size(cols, rows)))
             .map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
 
     pub fn start_selection(&self, row: usize, col: usize, right_half: bool) {

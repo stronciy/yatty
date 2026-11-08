@@ -1,4 +1,5 @@
 mod convert;
+mod footer;
 mod input;
 
 use std::time::{Duration, Instant};
@@ -20,6 +21,8 @@ struct State {
     renderer: Renderer,
     session: Session,
     theme: Theme,
+    footer: Option<footer::Footer>,
+    footer_refreshed: Instant,
 }
 
 struct App {
@@ -62,13 +65,19 @@ impl ApplicationHandler for App {
         let renderer =
             Renderer::new(window.clone(), size.width, size.height, font).expect("renderer");
         let (cols, rows) = Self::grid_size(&renderer, size.width, size.height);
+        let reserved = u16::from(self.settings.footer.enabled);
         let session = Session::spawn(&SpawnOptions {
             shell: None,
             cwd: None,
             cols,
-            rows,
+            rows: rows.saturating_sub(reserved).max(1),
         })
         .expect("spawn shell");
+        let footer = self
+            .settings
+            .footer
+            .enabled
+            .then(|| footer::Footer::start(session.pid()));
 
         window.request_redraw();
         self.state = Some(State {
@@ -76,6 +85,8 @@ impl ApplicationHandler for App {
             renderer,
             session,
             theme: self.settings.theme.clone(),
+            footer,
+            footer_refreshed: Instant::now(),
         });
     }
 
@@ -88,7 +99,10 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 state.renderer.resize(size.width, size.height);
                 let (cols, rows) = Self::grid_size(&state.renderer, size.width, size.height);
-                let _ = state.session.resize(cols, rows);
+                let reserved = u16::from(state.footer.is_some());
+                let _ = state
+                    .session
+                    .resize(cols, rows.saturating_sub(reserved).max(1));
                 state.window.request_redraw();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -143,7 +157,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                let grid = convert::to_render_grid(&state.session.snapshot(), &state.theme);
+                let mut grid = convert::to_render_grid(&state.session.snapshot(), &state.theme);
+                if let Some(footer) = &state.footer {
+                    let line = footer.line(grid.cols, (grid.cols as u16, grid.rows as u16));
+                    convert::append_footer(&mut grid, &line, &state.theme);
+                }
                 state.renderer.draw(&grid);
             }
             _ => {}
@@ -151,11 +169,15 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(state) = self.state.as_ref() else {
+        let Some(state) = self.state.as_mut() else {
             return;
         };
         let mut changed = false;
         while state.session.events().try_recv().is_ok() {
+            changed = true;
+        }
+        if state.footer.is_some() && state.footer_refreshed.elapsed() >= Duration::from_secs(1) {
+            state.footer_refreshed = Instant::now();
             changed = true;
         }
         if changed {
@@ -168,6 +190,9 @@ impl ApplicationHandler for App {
 fn cell_at(state: &State, pointer: PhysicalPosition<f64>) -> (usize, usize, bool) {
     let PhysicalSize { width, height } = state.window.inner_size();
     let (cols, rows) = App::grid_size(&state.renderer, width, height);
+    let rows = rows
+        .saturating_sub(u16::from(state.footer.is_some()))
+        .max(1);
     let (cell_w, cell_h) = state.renderer.cell_size();
     let x = pointer.x.max(0.0) as f32;
     let y = pointer.y.max(0.0) as f32;

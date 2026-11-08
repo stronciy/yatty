@@ -58,6 +58,27 @@ fn indexed(index: u8, theme: &Theme) -> Rgb {
     }
 }
 
+pub fn append_footer(grid: &mut RenderGrid, text: &str, theme: &Theme) {
+    let fg = rgba(mix(theme.foreground, theme.background, 0.55));
+    let bg = rgba(mix(theme.background, theme.foreground, 0.08));
+    let mut chars = text.chars();
+    for _ in 0..grid.cols {
+        let ch = chars.next().unwrap_or(' ');
+        grid.cells.push(RenderCell {
+            ch,
+            fg,
+            bg,
+            wide_spacer: false,
+        });
+    }
+    grid.rows += 1;
+}
+
+fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    let channel = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Rgb(channel(a.0, b.0), channel(a.1, b.1), channel(a.2, b.2))
+}
+
 fn rgba(Rgb(r, g, b): Rgb) -> Rgba {
     [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
 }
