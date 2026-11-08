@@ -5,3 +5,11 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = "1.0.104"
+bytemuck = "1.25.2"
+cosmic-text = "0.19.0"
+png = "0.18.1"
+pollster = "1.0.1"
+term = { version = "0.1.0", path = "../term" }
+tracing = "0.1.44"
+wgpu = "30.0.1"

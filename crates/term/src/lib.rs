@@ -103,7 +103,14 @@ impl Snapshot {
     pub fn text(&self) -> String {
         self.lines
             .iter()
-            .map(|line| line.iter().filter(|c| !c.wide_spacer).map(|c| c.ch).collect::<String>().trim_end().to_string())
+            .map(|line| {
+                line.iter()
+                    .filter(|c| !c.wide_spacer)
+                    .map(|c| c.ch)
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -118,18 +125,27 @@ pub struct Session {
 impl Session {
     pub fn spawn(options: &SpawnOptions) -> io::Result<Self> {
         let (tx, events) = mpsc::channel();
-        let size = TermSize { cols: options.cols as usize, rows: options.rows as usize };
-        let term = Arc::new(FairMutex::new(Term::new(Config::default(), &size, Proxy(tx.clone()))));
+        let size = TermSize {
+            cols: options.cols as usize,
+            rows: options.rows as usize,
+        };
+        let term = Arc::new(FairMutex::new(Term::new(
+            Config::default(),
+            &size,
+            Proxy(tx.clone()),
+        )));
 
         let pty_options = tty::Options {
-            shell: options.shell.clone().map(|(program, args)| Shell::new(program, args)),
+            shell: options
+                .shell
+                .clone()
+                .map(|(program, args)| Shell::new(program, args)),
             working_directory: options.cwd.clone(),
             drain_on_exit: true,
             env: HashMap::from([
                 ("TERM".to_string(), "xterm-256color".to_string()),
                 ("COLORTERM".to_string(), "truecolor".to_string()),
             ]),
-            ..Default::default()
         };
         let pty = tty::new(&pty_options, window_size(options.cols, options.rows), 0)?;
 
@@ -137,7 +153,11 @@ impl Session {
         let sender = event_loop.channel();
         let _io_thread = event_loop.spawn();
 
-        Ok(Self { term, sender, events })
+        Ok(Self {
+            term,
+            sender,
+            events,
+        })
     }
 
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
@@ -147,7 +167,10 @@ impl Session {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> io::Result<()> {
-        self.term.lock().resize(TermSize { cols: cols as usize, rows: rows as usize });
+        self.term.lock().resize(TermSize {
+            cols: cols as usize,
+            rows: rows as usize,
+        });
         self.sender
             .send(Msg::Resize(window_size(cols, rows)))
             .map_err(|e| io::Error::other(e.to_string()))
@@ -176,7 +199,10 @@ impl Session {
         }
 
         let cursor_row = usize::try_from(content.cursor.point.line.0 + offset).unwrap_or(0);
-        let cursor = Cursor { row: cursor_row, col: content.cursor.point.column.0 };
+        let cursor = Cursor {
+            row: cursor_row,
+            col: content.cursor.point.column.0,
+        };
         Snapshot { lines, cursor }
     }
 }
@@ -188,7 +214,12 @@ impl Drop for Session {
 }
 
 fn window_size(cols: u16, rows: u16) -> WindowSize {
-    WindowSize { num_cols: cols, num_lines: rows, cell_width: 1, cell_height: 1 }
+    WindowSize {
+        num_cols: cols,
+        num_lines: rows,
+        cell_width: 1,
+        cell_height: 1,
+    }
 }
 
 fn convert_cell(cell: &alacritty_terminal::term::cell::Cell) -> Cell {
@@ -213,7 +244,11 @@ fn convert_color(color: AnsiColor) -> Color {
             NamedColor::Foreground | NamedColor::Background | NamedColor::Cursor => Color::Default,
             other => {
                 let index = other as u16;
-                if index < 16 { Color::Indexed(index as u8) } else { Color::Default }
+                if index < 16 {
+                    Color::Indexed(index as u8)
+                } else {
+                    Color::Default
+                }
             }
         },
     }

@@ -26,7 +26,11 @@ fn wait_for_text(session: &Session, needle: &str) -> bool {
 #[test]
 fn command_output_appears_in_snapshot() {
     let session = Session::spawn(&sh("echo hello")).expect("spawn");
-    assert!(wait_for_text(&session, "hello"), "output was: {:?}", session.snapshot().text());
+    assert!(
+        wait_for_text(&session, "hello"),
+        "output was: {:?}",
+        session.snapshot().text()
+    );
 }
 
 #[test]
@@ -35,7 +39,10 @@ fn child_exit_code_is_reported() {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let event = session.events().recv_timeout(remaining).expect("ChildExit event");
+        let event = session
+            .events()
+            .recv_timeout(remaining)
+            .expect("ChildExit event");
         if let Event::ChildExit(status) = event {
             assert_eq!(status.code(), Some(3));
             break;
@@ -53,5 +60,9 @@ fn input_is_delivered_to_shell() {
     };
     let session = Session::spawn(&options).expect("spawn");
     session.write(b"ping\n").expect("write");
-    assert!(wait_for_text(&session, "ping"), "output was: {:?}", session.snapshot().text());
+    assert!(
+        wait_for_text(&session, "ping"),
+        "output was: {:?}",
+        session.snapshot().text()
+    );
 }
