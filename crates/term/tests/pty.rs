@@ -9,6 +9,7 @@ fn sh(script: &str) -> SpawnOptions {
         cwd: None,
         cols: 80,
         rows: 24,
+        env: Vec::new(),
     }
 }
 
@@ -57,6 +58,7 @@ fn input_is_delivered_to_shell() {
         cwd: None,
         cols: 80,
         rows: 24,
+        env: Vec::new(),
     };
     let session = Session::spawn(&options).expect("spawn");
     session.write(b"ping\n").expect("write");
