@@ -1,14 +1,16 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Family, FeatureTag, FontFeatures, FontSystem, Metrics, Shaping, SwashCache,
+    Weight,
+};
 use wgpu::util::DeviceExt;
 
-use crate::RenderGrid;
 use crate::atlas::{Atlas, Glyph, GlyphEntry};
+use crate::{FontSpec, RenderGrid};
 
 const SHADER: &str = include_str!("shader.wgsl");
-const FONT_FAMILY: &str = "JetBrains Mono";
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -31,6 +33,7 @@ pub struct Renderer {
     metrics: Metrics,
     cell_w: f32,
     cell_h: f32,
+    font: FontSpec,
     row_text: Vec<String>,
     row_buffers: Vec<Buffer>,
     capture: Option<PathBuf>,
@@ -41,7 +44,7 @@ impl Renderer {
         target: impl Into<wgpu::SurfaceTarget<'static>>,
         width: u32,
         height: u32,
-        font_px: f32,
+        font: FontSpec,
     ) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(target)?;
@@ -158,8 +161,8 @@ impl Renderer {
         });
 
         let mut font_system = FontSystem::new();
-        let metrics = Metrics::new(font_px, (font_px * 1.25).ceil());
-        let cell_w = measure_advance(&mut font_system, metrics, font_px);
+        let metrics = Metrics::new(font.size_px, (font.size_px * 1.25).ceil());
+        let cell_w = measure_advance(&mut font_system, metrics, &text_attrs(&font), font.size_px);
         let cell_h = metrics.line_height;
 
         Ok(Self {
@@ -175,6 +178,7 @@ impl Renderer {
             metrics,
             cell_w,
             cell_h,
+            font,
             row_text: Vec::new(),
             row_buffers: Vec::new(),
             capture: None,
@@ -237,8 +241,10 @@ impl Renderer {
             queue,
             row_buffers,
             row_text,
+            font,
             ..
         } = self;
+        let attrs = text_attrs(font);
         for row in 0..grid.rows {
             let text: String = (0..grid.cols)
                 .map(|col| {
@@ -247,7 +253,7 @@ impl Renderer {
                 })
                 .collect();
             if row_text[row] != text {
-                row_buffers[row].set_text(&text, &text_attrs(), Shaping::Advanced, None);
+                row_buffers[row].set_text(&text, &attrs, Shaping::Advanced, None);
                 row_buffers[row].shape_until_scroll(font_system, false);
                 row_text[row] = text;
             }
@@ -328,9 +334,9 @@ impl Renderer {
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.10,
-                            g: 0.105,
-                            b: 0.12,
+                            r: grid.background[0] as f64,
+                            g: grid.background[1] as f64,
+                            b: grid.background[2] as f64,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -434,14 +440,29 @@ impl Renderer {
     }
 }
 
-fn text_attrs() -> Attrs<'static> {
-    Attrs::new().family(Family::Name(FONT_FAMILY))
+fn text_attrs(font: &FontSpec) -> Attrs<'_> {
+    let mut features = FontFeatures::new();
+    if !font.ligatures {
+        features
+            .disable(FeatureTag::STANDARD_LIGATURES)
+            .disable(FeatureTag::CONTEXTUAL_LIGATURES)
+            .disable(FeatureTag::CONTEXTUAL_ALTERNATES);
+    }
+    Attrs::new()
+        .family(Family::Name(&font.family))
+        .weight(Weight(font.weight))
+        .font_features(features)
 }
 
-fn measure_advance(font_system: &mut FontSystem, metrics: Metrics, fallback: f32) -> f32 {
+fn measure_advance(
+    font_system: &mut FontSystem,
+    metrics: Metrics,
+    attrs: &Attrs,
+    fallback: f32,
+) -> f32 {
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(None, None);
-    buffer.set_text("M", &text_attrs(), Shaping::Advanced, None);
+    buffer.set_text("M", attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);
     buffer
         .layout_runs()

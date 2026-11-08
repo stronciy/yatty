@@ -3,7 +3,8 @@ mod input;
 
 use std::time::{Duration, Instant};
 
-use render::Renderer;
+use config::{Settings, Theme};
+use render::{FontSpec, Renderer};
 use term::{Session, SpawnOptions};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -12,17 +13,17 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
-const FONT_SIZE: f32 = 13.0;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 struct State {
     window: std::sync::Arc<Window>,
     renderer: Renderer,
     session: Session,
+    theme: Theme,
 }
 
-#[derive(Default)]
 struct App {
+    settings: Settings,
     state: Option<State>,
     modifiers: ModifiersState,
 }
@@ -49,8 +50,14 @@ impl ApplicationHandler for App {
         let scale = window.scale_factor() as f32;
         let size = window.inner_size();
 
-        let renderer = Renderer::new(window.clone(), size.width, size.height, FONT_SIZE * scale)
-            .expect("renderer");
+        let font = FontSpec {
+            family: self.settings.font.family.clone(),
+            weight: self.settings.font.weight,
+            size_px: self.settings.font.size * scale,
+            ligatures: self.settings.font.ligatures,
+        };
+        let renderer =
+            Renderer::new(window.clone(), size.width, size.height, font).expect("renderer");
         let (cols, rows) = Self::grid_size(&renderer, size.width, size.height);
         let session = Session::spawn(&SpawnOptions {
             shell: None,
@@ -65,6 +72,7 @@ impl ApplicationHandler for App {
             window,
             renderer,
             session,
+            theme: self.settings.theme.clone(),
         });
     }
 
@@ -89,7 +97,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                let grid = convert::to_render_grid(&state.session.snapshot());
+                let grid = convert::to_render_grid(&state.session.snapshot(), &state.theme);
                 state.renderer.draw(&grid);
             }
             _ => {}
@@ -118,7 +126,16 @@ fn main() {
         )
         .init();
 
+    let settings = Settings::load(&config::default_config_dir());
+    for warning in &settings.warnings {
+        tracing::warn!("config: {warning}");
+    }
+
     let event_loop = EventLoop::new().expect("event loop");
-    let mut app = App::default();
+    let mut app = App {
+        settings,
+        state: None,
+        modifiers: ModifiersState::default(),
+    };
     event_loop.run_app(&mut app).expect("run app");
 }

@@ -5,6 +5,14 @@ pub use renderer::Renderer;
 
 pub type Rgba = [f32; 4];
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FontSpec {
+    pub family: String,
+    pub weight: u16,
+    pub size_px: f32,
+    pub ligatures: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderCell {
     pub ch: char,
@@ -20,6 +28,7 @@ pub struct RenderGrid {
     pub cells: Vec<RenderCell>,
     pub cursor: Option<(usize, usize)>,
     pub cursor_color: Rgba,
+    pub background: Rgba,
 }
 
 impl RenderGrid {

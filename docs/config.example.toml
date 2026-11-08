@@ -1,0 +1,18 @@
+# ~/.config/yatty/config.toml
+# Все поля необязательны. Без файла используются значения по умолчанию.
+
+[font]
+family = "JetBrains Mono"   # имя семейства, установленного в системе
+size = 14.0                 # логический размер в пунктах
+weight = 400                # 400 = Regular, 700 = Bold
+ligatures = true            # ligatures (->, =>, !=)
+
+[colors]
+# Тема из ~/.config/yatty/themes/<name>.toml. "default" — встроенная тема.
+theme = "default"
+
+# Точечные переопределения поверх темы (#rrggbb).
+# foreground = "#C0C5D0"
+# background = "#1A1B1F"
+# cursor = "#7AA2F7"
+# palette = [ ...16 цветов... ]
