@@ -2,7 +2,12 @@ use config::{Rgb, Theme};
 use render::{RenderCell, RenderGrid, Rgba};
 use term::{Color, Snapshot};
 
-pub fn to_render_grid(snapshot: &Snapshot, theme: &Theme) -> RenderGrid {
+pub fn to_render_grid(
+    snapshot: &Snapshot,
+    theme: &Theme,
+    cursor_shape: render::CursorShape,
+    cursor_alpha: f32,
+) -> RenderGrid {
     let rows = snapshot.lines.len();
     let cols = snapshot.lines.first().map_or(0, Vec::len);
     let mut cells = Vec::with_capacity(rows * cols);
@@ -19,6 +24,9 @@ pub fn to_render_grid(snapshot: &Snapshot, theme: &Theme) -> RenderGrid {
                 ch: cell.ch,
                 fg,
                 bg,
+                bold: cell.bold,
+                italic: cell.italic,
+                underline: cell.underline,
                 wide_spacer: cell.wide_spacer,
             });
         }
@@ -31,6 +39,8 @@ pub fn to_render_grid(snapshot: &Snapshot, theme: &Theme) -> RenderGrid {
         cells,
         cursor,
         cursor_color: rgba(theme.cursor),
+        cursor_shape,
+        cursor_alpha,
         background: rgba(theme.background),
         bottom_bar: None,
     }
@@ -70,6 +80,9 @@ pub fn append_footer(grid: &mut RenderGrid, text: &str, theme: &Theme) {
             fg,
             bg,
             wide_spacer: false,
+            bold: false,
+            italic: false,
+            underline: false,
         });
     }
     grid.rows += 1;

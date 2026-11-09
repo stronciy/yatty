@@ -73,6 +73,40 @@ pub struct Footer {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
+pub struct Cursor {
+    /// "block", "bar" or "underline". Validated when the settings are resolved.
+    pub shape: String,
+    pub blink: bool,
+    /// Phosphor-style decay: the cursor glows at full brightness and fades out, like an old CRT.
+    pub fade: bool,
+}
+
+impl Default for Cursor {
+    fn default() -> Self {
+        Self {
+            shape: "bar".into(),
+            blink: false,
+            fade: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorShape {
+    Block,
+    Bar,
+    Underline,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CursorSettings {
+    pub shape: CursorShape,
+    pub blink: bool,
+    pub fade: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
 pub struct Prompt {
     pub enabled: bool,
 }
@@ -96,6 +130,7 @@ pub struct Config {
     pub colors: Colors,
     pub footer: Footer,
     pub prompt: Prompt,
+    pub cursor: Cursor,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -162,6 +197,7 @@ pub struct Settings {
     pub font: Font,
     pub theme: Theme,
     pub footer: Footer,
+    pub cursor: CursorSettings,
     pub warnings: Vec<String>,
 }
 
@@ -207,6 +243,22 @@ impl Settings {
             font,
             theme,
             footer: config.footer.clone(),
+            cursor: {
+                let shape = match config.cursor.shape.as_str() {
+                    "block" => CursorShape::Block,
+                    "bar" => CursorShape::Bar,
+                    "underline" => CursorShape::Underline,
+                    other => {
+                        warnings.push(format!("cursor.shape `{other}` is unknown, using bar"));
+                        CursorShape::Bar
+                    }
+                };
+                CursorSettings {
+                    shape,
+                    blink: config.cursor.blink,
+                    fade: config.cursor.fade,
+                }
+            },
             warnings,
         }
     }
@@ -373,6 +425,20 @@ mod tests {
         let (loaded, warnings) = load_config(&dir);
         assert_eq!(loaded, config);
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn cursor_shape_is_validated() {
+        let dir = temp_dir("cursor");
+        fs::write(
+            dir.join("config.toml"),
+            "[cursor]\nshape = \"beam\"\nblink = true\nfade = true\n",
+        )
+        .unwrap();
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.cursor.shape, CursorShape::Bar);
+        assert!(settings.cursor.blink && settings.cursor.fade);
+        assert_eq!(settings.warnings.len(), 1);
     }
 
     #[test]

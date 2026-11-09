@@ -1,4 +1,5 @@
 mod convert;
+mod cursor;
 mod footer;
 mod input;
 mod menu;
@@ -29,6 +30,8 @@ struct State {
     theme: Theme,
     footer: Option<footer::Footer>,
     footer_refreshed: Instant,
+    cursor_epoch: Instant,
+    cursor_level: u32,
 }
 
 struct App {
@@ -162,6 +165,8 @@ impl ApplicationHandler for App {
             theme: self.settings.theme.clone(),
             footer,
             footer_refreshed: Instant::now(),
+            cursor_epoch: Instant::now(),
+            cursor_level: 0,
         });
     }
 
@@ -246,11 +251,19 @@ impl ApplicationHandler for App {
                     input::key_bytes(&event, self.modifiers, state.session.application_cursor())
                 {
                     state.session.clear_selection();
+                    state.cursor_epoch = Instant::now();
                     let _ = state.session.write(&bytes);
                 }
             }
             WindowEvent::RedrawRequested => {
-                let mut grid = convert::to_render_grid(&state.session.snapshot(), &state.theme);
+                let cursor = &self.settings.cursor;
+                let alpha = cursor::alpha(state.cursor_epoch.elapsed(), cursor);
+                let mut grid = convert::to_render_grid(
+                    &state.session.snapshot(),
+                    &state.theme,
+                    cursor::render_shape(cursor.shape),
+                    alpha,
+                );
                 if let Some(footer) = &state.footer {
                     let line = footer.line(grid.cols, (grid.cols as u16, grid.rows as u16));
                     convert::append_footer(&mut grid, &line, &state.theme);
@@ -293,6 +306,11 @@ impl ApplicationHandler for App {
         }
         if state.footer.is_some() && state.footer_refreshed.elapsed() >= Duration::from_secs(1) {
             state.footer_refreshed = Instant::now();
+            changed = true;
+        }
+        let level = cursor::level(state.cursor_epoch.elapsed(), &self.settings.cursor);
+        if self.settings.cursor.blink && level != state.cursor_level {
+            state.cursor_level = level;
             changed = true;
         }
         if changed {

@@ -2,13 +2,16 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FeatureTag, FontFeatures, FontSystem, Metrics, Shaping, SwashCache,
-    Weight,
+    Attrs, Buffer, Family, FeatureTag, FontFeatures, FontSystem, Metrics, Shaping, Style,
+    SwashCache, Weight,
 };
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{Atlas, Glyph, GlyphEntry};
-use crate::{FontSpec, Insets, RenderGrid};
+use crate::{CursorShape, FontSpec, Insets, RenderGrid};
+
+const BOLD: u8 = 1;
+const ITALIC: u8 = 2;
 
 const SHADER: &str = include_str!("shader.wgsl");
 
@@ -34,7 +37,7 @@ pub struct Renderer {
     cell_w: f32,
     cell_h: f32,
     font: FontSpec,
-    row_text: Vec<String>,
+    row_text: Vec<Vec<(char, u8)>>,
     row_buffers: Vec<Buffer>,
     capture: Option<PathBuf>,
     insets: Insets,
@@ -229,6 +232,7 @@ impl Renderer {
 
         let (ox, oy) = (self.insets.left, self.insets.top);
         let white = self.atlas.white();
+        let thickness = (self.font.size_px / 14.0).round().max(1.0);
         for row in 0..grid.rows {
             for col in 0..grid.cols {
                 let cell = grid.cell(row, col);
@@ -241,6 +245,16 @@ impl Renderer {
                     white,
                     cell.bg,
                 );
+                if cell.underline {
+                    let line_y = y + cell_h - 2.0 * thickness;
+                    push_quad(
+                        &mut vertices,
+                        screen,
+                        [x, line_y, x + cell_w, line_y + thickness],
+                        white,
+                        cell.fg,
+                    );
+                }
             }
         }
         if let Some(bar) = grid.bottom_bar {
@@ -253,16 +267,29 @@ impl Renderer {
                 bar,
             );
         }
-        if let Some((row, col)) = grid.cursor {
+        let cursor_color = [
+            grid.cursor_color[0],
+            grid.cursor_color[1],
+            grid.cursor_color[2],
+            grid.cursor_color[3] * grid.cursor_alpha,
+        ];
+        if let Some((row, col)) = grid.cursor.filter(|_| grid.cursor_alpha > 0.0) {
             let x = ox + col as f32 * cell_w;
             let y = oy + row as f32 * cell_h;
-            push_quad(
-                &mut vertices,
-                screen,
-                [x, y, x + 2.0, y + cell_h],
-                white,
-                grid.cursor_color,
-            );
+            let rect = match grid.cursor_shape {
+                CursorShape::Block => [x, y, x + cell_w, y + cell_h],
+                CursorShape::Bar => {
+                    let width = (self.font.size_px / 8.0).round().max(2.0);
+                    [x, y, x + width, y + cell_h]
+                }
+                CursorShape::Underline => [
+                    x,
+                    y + cell_h - thickness * 2.0,
+                    x + cell_w,
+                    y + cell_h - thickness,
+                ],
+            };
+            push_quad(&mut vertices, screen, rect, white, cursor_color);
         }
 
         let Self {
@@ -277,16 +304,31 @@ impl Renderer {
         } = self;
         let attrs = text_attrs(font);
         for row in 0..grid.rows {
-            let text: String = (0..grid.cols)
+            let key: Vec<(char, u8)> = (0..grid.cols)
                 .map(|col| {
                     let cell = grid.cell(row, col);
-                    if cell.wide_spacer { ' ' } else { cell.ch }
+                    let ch = if cell.wide_spacer { ' ' } else { cell.ch };
+                    (ch, style_bits(cell.bold, cell.italic))
                 })
                 .collect();
-            if row_text[row] != text {
-                row_buffers[row].set_text(&text, &attrs, Shaping::Advanced, None);
+            if row_text[row] != key {
+                let mut spans: Vec<(String, u8)> = Vec::new();
+                for (ch, style) in &key {
+                    match spans.last_mut() {
+                        Some((text, last)) if last == style => text.push(*ch),
+                        _ => spans.push((ch.to_string(), *style)),
+                    }
+                }
+                row_buffers[row].set_rich_text(
+                    spans
+                        .iter()
+                        .map(|(text, style)| (text.as_str(), styled_attrs(font, *style))),
+                    &attrs,
+                    Shaping::Advanced,
+                    None,
+                );
                 row_buffers[row].shape_until_scroll(font_system, false);
-                row_text[row] = text;
+                row_text[row] = key;
             }
 
             for run in row_buffers[row].layout_runs() {
@@ -295,7 +337,15 @@ impl Renderer {
                     if col >= grid.cols {
                         continue;
                     }
-                    let fg = grid.cell(row, col).fg;
+                    let cell = grid.cell(row, col);
+                    let block_under_cursor = grid.cursor == Some((row, col))
+                        && grid.cursor_shape == CursorShape::Block
+                        && grid.cursor_alpha >= 0.5;
+                    let fg = if block_under_cursor {
+                        grid.background
+                    } else {
+                        cell.fg
+                    };
                     let physical = glyph.physical((0.0, run.line_y), 1.0);
                     let key = physical.cache_key;
                     let entry: Option<GlyphEntry> = atlas.get_or_insert(queue, key, || {
@@ -464,11 +514,26 @@ impl Renderer {
             buffer.set_size(None, None);
             buffer.set_monospace_width(Some(self.cell_w));
             self.row_buffers.push(buffer);
-            self.row_text.push(String::new());
+            self.row_text.push(Vec::new());
         }
         self.row_buffers.truncate(rows);
         self.row_text.truncate(rows);
     }
+}
+
+fn style_bits(bold: bool, italic: bool) -> u8 {
+    (u8::from(bold) * BOLD) | (u8::from(italic) * ITALIC)
+}
+
+fn styled_attrs(font: &FontSpec, style: u8) -> Attrs<'_> {
+    let mut attrs = text_attrs(font);
+    if style & BOLD != 0 {
+        attrs = attrs.weight(Weight(700));
+    }
+    if style & ITALIC != 0 {
+        attrs = attrs.style(Style::Italic);
+    }
+    attrs
 }
 
 fn text_attrs(font: &FontSpec) -> Attrs<'_> {

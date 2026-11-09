@@ -334,6 +334,41 @@ impl Form {
                 changed |= ui
                     .checkbox(&mut self.draft.font.ligatures, "Ligatures")
                     .changed();
+                ui.add_space(10.0);
+                ui.label("Cursor");
+                ui.horizontal(|ui| {
+                    let shapes = [
+                        ("block", "Block"),
+                        ("bar", "Bar"),
+                        ("underline", "Underline"),
+                    ];
+                    let current = shapes
+                        .iter()
+                        .find(|(id, _)| *id == self.draft.cursor.shape)
+                        .map_or("Bar", |(_, label)| label);
+                    ComboBox::from_id_salt("cursor-shape")
+                        .selected_text(current)
+                        .show_ui(ui, |ui| {
+                            for (id, label) in shapes {
+                                if ui
+                                    .selectable_label(self.draft.cursor.shape == id, label)
+                                    .clicked()
+                                {
+                                    self.draft.cursor.shape = id.to_string();
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+                changed |= ui
+                    .checkbox(&mut self.draft.cursor.blink, "Blinking")
+                    .changed();
+                changed |= ui
+                    .add_enabled(
+                        self.draft.cursor.blink,
+                        egui::Checkbox::new(&mut self.draft.cursor.fade, "Phosphor fade (old CRT)"),
+                    )
+                    .changed();
             }
             Tab::Colors => {
                 ui.horizontal(|ui| {

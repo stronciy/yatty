@@ -19,6 +19,16 @@ pub struct RenderCell {
     pub fg: Rgba,
     pub bg: Rgba,
     pub wide_spacer: bool,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorShape {
+    Block,
+    Bar,
+    Underline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +38,9 @@ pub struct RenderGrid {
     pub cells: Vec<RenderCell>,
     pub cursor: Option<(usize, usize)>,
     pub cursor_color: Rgba,
+    pub cursor_shape: CursorShape,
+    /// 0.0 hides the cursor, 1.0 draws it at full strength.
+    pub cursor_alpha: f32,
     pub background: Rgba,
     /// Paints the last row as a full-width bar that extends to the bottom edge of the window.
     pub bottom_bar: Option<Rgba>,
