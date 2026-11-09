@@ -4,6 +4,10 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "Yatty"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.104"
 arboard = "3.7.0"

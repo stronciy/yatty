@@ -10,21 +10,22 @@ impl MenuBar {
     pub fn install() -> Self {
         let menu = Menu::new();
 
-        let app = Submenu::new("yatty", true);
-        let about = PredefinedMenuItem::about(None, None);
-        let quit = PredefinedMenuItem::quit(None);
-        app.append_items(&[&about, &PredefinedMenuItem::separator(), &quit])
-            .expect("app menu");
-
         let settings = MenuItem::new(
             "Settings…",
             true,
             Some(Accelerator::new(Modifiers::META, Code::Comma)),
         );
-        let menu_items = Submenu::new("Menu", true);
-        menu_items.append(&settings).expect("menu item");
+        let app = Submenu::new("Yatty", true);
+        app.append_items(&[
+            &PredefinedMenuItem::about(None, None),
+            &PredefinedMenuItem::separator(),
+            &settings,
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::quit(None),
+        ])
+        .expect("app menu");
 
-        menu.append_items(&[&app, &menu_items]).expect("menu bar");
+        menu.append(&app).expect("menu bar");
         menu.init_for_nsapp();
 
         Self {
