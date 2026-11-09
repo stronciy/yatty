@@ -8,7 +8,7 @@ use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
@@ -54,6 +54,7 @@ pub struct SpawnOptions {
     pub cols: u16,
     pub rows: u16,
     pub env: Vec<(String, String)>,
+    pub scrollback: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,7 +140,7 @@ impl Session {
             rows: options.rows as usize,
         };
         let term = Arc::new(FairMutex::new(Term::new(
-            Config::default(),
+            scrollback_config(options.scrollback),
             &size,
             Proxy(tx.clone()),
         )));
@@ -194,6 +195,7 @@ impl Session {
     }
 
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        self.scroll_to_bottom();
         self.sender
             .send(Msg::Input(Cow::Owned(bytes.to_vec())))
             .map_err(|e| io::Error::other(e.to_string()))
@@ -213,9 +215,48 @@ impl Session {
         self.pid
     }
 
+    pub fn set_scrollback(&self, lines: usize) {
+        self.term.lock().set_options(scrollback_config(lines));
+    }
+
+    pub fn scroll(&self, lines: i32) {
+        self.term.lock().scroll_display(Scroll::Delta(lines));
+    }
+
+    pub fn scroll_page(&self, up: bool) {
+        let scroll = if up { Scroll::PageUp } else { Scroll::PageDown };
+        self.term.lock().scroll_display(scroll);
+    }
+
+    pub fn scroll_to_bottom(&self) {
+        let mut term = self.term.lock();
+        if term.grid().display_offset() != 0 {
+            term.scroll_display(Scroll::Bottom);
+        }
+    }
+
+    /// Mouse wheel: scrolls the history, or sends cursor keys when a full-screen
+    /// program (such as `mc` or `vim`) is running on the alternate screen.
+    pub fn wheel(&self, lines: i32, application_cursor: bool) {
+        let alternate = self.term.lock().mode().contains(TermMode::ALT_SCREEN);
+        if !alternate {
+            self.scroll(lines);
+            return;
+        }
+        let key = match (lines > 0, application_cursor) {
+            (true, true) => "\x1bOA",
+            (true, false) => "\x1b[A",
+            (false, true) => "\x1bOB",
+            (false, false) => "\x1b[B",
+        };
+        let count = lines.unsigned_abs() as usize;
+        let _ = self.write(key.repeat(count).as_bytes());
+    }
+
     pub fn start_selection(&self, row: usize, col: usize, right_half: bool) {
-        let point = viewport_point(row, col);
-        self.term.lock().selection = Some(Selection::new(
+        let mut term = self.term.lock();
+        let point = viewport_point(&term, row, col);
+        term.selection = Some(Selection::new(
             SelectionType::Simple,
             point,
             side(right_half),
@@ -223,8 +264,9 @@ impl Session {
     }
 
     pub fn update_selection(&self, row: usize, col: usize, right_half: bool) {
-        let point = viewport_point(row, col);
-        if let Some(selection) = self.term.lock().selection.as_mut() {
+        let mut term = self.term.lock();
+        let point = viewport_point(&term, row, col);
+        if let Some(selection) = term.selection.as_mut() {
             selection.update(point, side(right_half));
         }
     }
@@ -280,8 +322,16 @@ impl Drop for Session {
     }
 }
 
-fn viewport_point(row: usize, col: usize) -> Point {
-    Point::new(Line(row as i32), Column(col))
+fn viewport_point(term: &Term<Proxy>, row: usize, col: usize) -> Point {
+    let offset = term.grid().display_offset() as i32;
+    Point::new(Line(row as i32 - offset), Column(col))
+}
+
+fn scrollback_config(scrollback: usize) -> Config {
+    Config {
+        scrolling_history: scrollback,
+        ..Config::default()
+    }
 }
 
 fn side(right_half: bool) -> Side {

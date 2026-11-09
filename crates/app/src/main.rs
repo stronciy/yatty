@@ -16,9 +16,9 @@ use settings_window::{Outcome, SettingsWindow};
 use term::{Session, SpawnOptions};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -109,6 +109,7 @@ impl App {
             (false, _) => None,
         };
         let (cols, rows) = Self::grid_size(&state.renderer, size.width, size.height);
+        state.session.set_scrollback(self.settings.scrollback);
         let _ = state.session.resize(
             cols,
             rows.saturating_sub(u16::from(state.footer.is_some()))
@@ -149,6 +150,7 @@ impl ApplicationHandler for App {
             cols,
             rows: rows.saturating_sub(reserved).max(1),
             env: self.shell_env(),
+            scrollback: self.settings.scrollback,
         })
         .expect("spawn shell");
         let footer = self
@@ -201,6 +203,21 @@ impl ApplicationHandler for App {
                     .resize(cols, rows.saturating_sub(reserved).max(1));
                 state.window.request_redraw();
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let (_, cell_h) = state.renderer.cell_size();
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as i32,
+                    MouseScrollDelta::PixelDelta(position) => {
+                        (position.y / f64::from(cell_h) * 3.0).round() as i32
+                    }
+                };
+                if lines != 0 {
+                    state
+                        .session
+                        .wheel(lines, state.session.application_cursor());
+                    state.window.request_redraw();
+                }
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
@@ -231,7 +248,15 @@ impl ApplicationHandler for App {
                 state.window.request_redraw();
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if self.modifiers.super_key() {
+                let page = match event.logical_key {
+                    Key::Named(NamedKey::PageUp) => Some(true),
+                    Key::Named(NamedKey::PageDown) => Some(false),
+                    _ => None,
+                };
+                if let Some(up) = page.filter(|_| self.modifiers.shift_key()) {
+                    state.session.scroll_page(up);
+                    state.window.request_redraw();
+                } else if self.modifiers.super_key() {
                     if let Some(clipboard) = self.clipboard.as_mut() {
                         match event.physical_key {
                             PhysicalKey::Code(KeyCode::KeyC) => {

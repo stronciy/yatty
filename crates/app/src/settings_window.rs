@@ -369,6 +369,18 @@ impl Form {
                         egui::Checkbox::new(&mut self.draft.cursor.fade, "Phosphor fade (old CRT)"),
                     )
                     .changed();
+                ui.add_space(10.0);
+                ui.label("Terminal");
+                ui.horizontal(|ui| {
+                    ui.label("Scrollback lines");
+                    changed |= ui
+                        .add(
+                            DragValue::new(&mut self.draft.terminal.scrollback)
+                                .range(0..=config::MAX_SCROLLBACK)
+                                .speed(50.0),
+                        )
+                        .changed();
+                });
             }
             Tab::Colors => {
                 ui.horizontal(|ui| {

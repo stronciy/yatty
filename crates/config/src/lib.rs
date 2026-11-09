@@ -71,6 +71,24 @@ pub struct Footer {
     pub enabled: bool,
 }
 
+pub const DEFAULT_SCROLLBACK: usize = 500;
+pub const MAX_SCROLLBACK: usize = 100_000;
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct Terminal {
+    /// Number of lines kept above the screen for scrolling back.
+    pub scrollback: usize,
+}
+
+impl Default for Terminal {
+    fn default() -> Self {
+        Self {
+            scrollback: DEFAULT_SCROLLBACK,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct Cursor {
@@ -131,6 +149,7 @@ pub struct Config {
     pub footer: Footer,
     pub prompt: Prompt,
     pub cursor: Cursor,
+    pub terminal: Terminal,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -198,6 +217,7 @@ pub struct Settings {
     pub theme: Theme,
     pub footer: Footer,
     pub cursor: CursorSettings,
+    pub scrollback: usize,
     pub warnings: Vec<String>,
 }
 
@@ -243,6 +263,15 @@ impl Settings {
             font,
             theme,
             footer: config.footer.clone(),
+            scrollback: if config.terminal.scrollback > MAX_SCROLLBACK {
+                warnings.push(format!(
+                    "terminal.scrollback {} is above {MAX_SCROLLBACK}, using maximum",
+                    config.terminal.scrollback
+                ));
+                MAX_SCROLLBACK
+            } else {
+                config.terminal.scrollback
+            },
             cursor: {
                 let shape = match config.cursor.shape.as_str() {
                     "block" => CursorShape::Block,
@@ -425,6 +454,20 @@ mod tests {
         let (loaded, warnings) = load_config(&dir);
         assert_eq!(loaded, config);
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn scrollback_defaults_to_500_and_is_capped() {
+        let dir = temp_dir("scrollback-default");
+        assert_eq!(Settings::load(&dir).scrollback, 500);
+        fs::write(
+            dir.join("config.toml"),
+            "[terminal]\nscrollback = 999999999\n",
+        )
+        .unwrap();
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.scrollback, MAX_SCROLLBACK);
+        assert_eq!(settings.warnings.len(), 1);
     }
 
     #[test]
