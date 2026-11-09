@@ -68,3 +68,15 @@ fn input_is_delivered_to_shell() {
         session.snapshot().text()
     );
 }
+
+#[test]
+fn terminal_answers_cursor_position_query() {
+    let options =
+        sh("stty raw -echo; printf '\\033[6n'; dd bs=1 count=6 2>/dev/null >/dev/null; printf GOT");
+    let session = Session::spawn(&options).expect("spawn");
+    assert!(
+        wait_for_text(&session, "GOT"),
+        "output was: {:?}",
+        session.snapshot().text()
+    );
+}

@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -11,6 +12,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
+use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::tty::{self, Shell};
@@ -130,7 +132,8 @@ pub struct Session {
 
 impl Session {
     pub fn spawn(options: &SpawnOptions) -> io::Result<Self> {
-        let (tx, events) = mpsc::channel();
+        let (tx, raw_events) = mpsc::channel();
+        let (out_tx, events) = mpsc::channel();
         let size = TermSize {
             cols: options.cols as usize,
             rows: options.rows as usize,
@@ -163,6 +166,24 @@ impl Session {
         let event_loop = EventLoop::new(term.clone(), Proxy(tx), pty, true, false)?;
         let sender = event_loop.channel();
         let _io_thread = event_loop.spawn();
+
+        let responder = sender.clone();
+        thread::spawn(move || {
+            for event in raw_events {
+                match event {
+                    // Replies to queries from the program (cursor position, device attributes, ...)
+                    // must be written back to the PTY, otherwise the program waits forever.
+                    Event::PtyWrite(text) => {
+                        let _ = responder.send(Msg::Input(Cow::Owned(text.into_bytes())));
+                    }
+                    other => {
+                        if out_tx.send(other).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
 
         Ok(Self {
             term,
@@ -214,6 +235,10 @@ impl Session {
 
     pub fn selection_text(&self) -> Option<String> {
         self.term.lock().selection_to_string()
+    }
+
+    pub fn application_cursor(&self) -> bool {
+        self.term.lock().mode().contains(TermMode::APP_CURSOR)
     }
 
     pub fn events(&self) -> &Receiver<Event> {

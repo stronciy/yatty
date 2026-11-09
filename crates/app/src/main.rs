@@ -238,7 +238,9 @@ impl ApplicationHandler for App {
                             _ => {}
                         }
                     }
-                } else if let Some(bytes) = input::key_bytes(&event, self.modifiers) {
+                } else if let Some(bytes) =
+                    input::key_bytes(&event, self.modifiers, state.session.application_cursor())
+                {
                     state.session.clear_selection();
                     let _ = state.session.write(&bytes);
                 }
