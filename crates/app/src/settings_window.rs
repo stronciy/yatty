@@ -183,7 +183,11 @@ impl SettingsWindow {
 
         let raw_input = input.take_egui_input(window);
         let mut action = Action::None;
-        let mut output = ctx.run_ui(raw_input, |ui| action = form.ui(ui));
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            egui::Frame::new()
+                .inner_margin(egui::Margin::same(18))
+                .show(ui, |ui| action = form.ui(ui));
+        });
         *repaint_at = output
             .viewport_output
             .values()

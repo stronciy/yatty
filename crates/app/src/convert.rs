@@ -32,6 +32,7 @@ pub fn to_render_grid(snapshot: &Snapshot, theme: &Theme) -> RenderGrid {
         cursor,
         cursor_color: rgba(theme.cursor),
         background: rgba(theme.background),
+        bottom_bar: None,
     }
 }
 
@@ -72,6 +73,7 @@ pub fn append_footer(grid: &mut RenderGrid, text: &str, theme: &Theme) {
         });
     }
     grid.rows += 1;
+    grid.bottom_bar = Some(bg);
 }
 
 fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {

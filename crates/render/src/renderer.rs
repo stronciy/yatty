@@ -8,7 +8,7 @@ use cosmic_text::{
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{Atlas, Glyph, GlyphEntry};
-use crate::{FontSpec, RenderGrid};
+use crate::{FontSpec, Insets, RenderGrid};
 
 const SHADER: &str = include_str!("shader.wgsl");
 
@@ -37,6 +37,7 @@ pub struct Renderer {
     row_text: Vec<String>,
     row_buffers: Vec<Buffer>,
     capture: Option<PathBuf>,
+    insets: Insets,
 }
 
 impl Renderer {
@@ -182,7 +183,16 @@ impl Renderer {
             row_text: Vec::new(),
             row_buffers: Vec::new(),
             capture: None,
+            insets: Insets::default(),
         })
+    }
+
+    pub fn set_insets(&mut self, insets: Insets) {
+        self.insets = insets;
+    }
+
+    pub fn insets(&self) -> Insets {
+        self.insets
     }
 
     pub fn cell_size(&self) -> (f32, f32) {
@@ -207,12 +217,13 @@ impl Renderer {
         let cell_h = self.cell_h;
         let mut vertices: Vec<Vertex> = Vec::with_capacity(grid.cols * grid.rows * 6);
 
+        let (ox, oy) = (self.insets.left, self.insets.top);
         let white = self.atlas.white();
         for row in 0..grid.rows {
             for col in 0..grid.cols {
                 let cell = grid.cell(row, col);
-                let x = col as f32 * cell_w;
-                let y = row as f32 * cell_h;
+                let x = ox + col as f32 * cell_w;
+                let y = oy + row as f32 * cell_h;
                 push_quad(
                     &mut vertices,
                     screen,
@@ -222,9 +233,19 @@ impl Renderer {
                 );
             }
         }
+        if let Some(bar) = grid.bottom_bar {
+            let y = oy + (grid.rows - 1) as f32 * cell_h;
+            push_quad(
+                &mut vertices,
+                screen,
+                [0.0, y, screen.0, screen.1],
+                white,
+                bar,
+            );
+        }
         if let Some((row, col)) = grid.cursor {
-            let x = col as f32 * cell_w;
-            let y = row as f32 * cell_h;
+            let x = ox + col as f32 * cell_w;
+            let y = oy + row as f32 * cell_h;
             push_quad(
                 &mut vertices,
                 screen,
@@ -280,8 +301,8 @@ impl Renderer {
                             })
                     });
                     if let Some(entry) = entry {
-                        let x0 = physical.x as f32 + entry.left as f32;
-                        let y0 = row as f32 * cell_h + physical.y as f32 - entry.top as f32;
+                        let x0 = ox + physical.x as f32 + entry.left as f32;
+                        let y0 = oy + row as f32 * cell_h + physical.y as f32 - entry.top as f32;
                         let rect = [x0, y0, x0 + entry.width as f32, y0 + entry.height as f32];
                         push_quad(&mut vertices, screen, rect, entry, fg);
                     }

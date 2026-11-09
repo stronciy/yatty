@@ -47,8 +47,11 @@ struct App {
 impl App {
     fn grid_size(renderer: &Renderer, width: u32, height: u32) -> (u16, u16) {
         let (cell_w, cell_h) = renderer.cell_size();
-        let cols = (width as f32 / cell_w).floor().max(1.0) as u16;
-        let rows = (height as f32 / cell_h).floor().max(1.0) as u16;
+        let insets = renderer.insets();
+        let content_w = width as f32 - insets.left - insets.right;
+        let content_h = height as f32 - insets.top - insets.bottom;
+        let cols = (content_w / cell_w).floor().max(1.0) as u16;
+        let rows = (content_h / cell_h).floor().max(1.0) as u16;
         (cols, rows)
     }
 
@@ -90,7 +93,10 @@ impl App {
             ligatures: self.settings.font.ligatures,
         };
         match Renderer::new(state.window.clone(), size.width, size.height, font) {
-            Ok(renderer) => state.renderer = renderer,
+            Ok(mut renderer) => {
+                renderer.set_insets(window_insets(scale));
+                state.renderer = renderer;
+            }
             Err(err) => tracing::error!("cannot apply font: {err}"),
         }
         state.theme = self.settings.theme.clone();
@@ -124,13 +130,14 @@ impl ApplicationHandler for App {
         let scale = window.scale_factor() as f32;
         let size = window.inner_size();
 
-        let renderer = Renderer::new(
+        let mut renderer = Renderer::new(
             window.clone(),
             size.width,
             size.height,
             self.font_spec(scale),
         )
         .expect("renderer");
+        renderer.set_insets(window_insets(scale));
         let (cols, rows) = Self::grid_size(&renderer, size.width, size.height);
         let reserved = u16::from(self.settings.footer.enabled);
         let session = Session::spawn(&SpawnOptions {
@@ -289,6 +296,16 @@ impl ApplicationHandler for App {
     }
 }
 
+/// Padding around the terminal content, in logical points scaled to physical pixels.
+fn window_insets(scale: f32) -> render::Insets {
+    render::Insets {
+        left: 14.0 * scale,
+        top: 12.0 * scale,
+        right: 14.0 * scale,
+        bottom: 16.0 * scale,
+    }
+}
+
 fn cell_at(state: &State, pointer: PhysicalPosition<f64>) -> (usize, usize, bool) {
     let PhysicalSize { width, height } = state.window.inner_size();
     let (cols, rows) = App::grid_size(&state.renderer, width, height);
@@ -296,8 +313,9 @@ fn cell_at(state: &State, pointer: PhysicalPosition<f64>) -> (usize, usize, bool
         .saturating_sub(u16::from(state.footer.is_some()))
         .max(1);
     let (cell_w, cell_h) = state.renderer.cell_size();
-    let x = pointer.x.max(0.0) as f32;
-    let y = pointer.y.max(0.0) as f32;
+    let insets = state.renderer.insets();
+    let x = (pointer.x as f32 - insets.left).max(0.0);
+    let y = (pointer.y as f32 - insets.top).max(0.0);
     let col = ((x / cell_w) as usize).min(cols as usize - 1);
     let row = ((y / cell_h) as usize).min(rows as usize - 1);
     let right_half = x - col as f32 * cell_w > cell_w / 2.0;

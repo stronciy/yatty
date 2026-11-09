@@ -29,6 +29,17 @@ pub struct RenderGrid {
     pub cursor: Option<(usize, usize)>,
     pub cursor_color: Rgba,
     pub background: Rgba,
+    /// Paints the last row as a full-width bar that extends to the bottom edge of the window.
+    pub bottom_bar: Option<Rgba>,
+}
+
+/// Space in physical pixels between the window edges and the terminal content.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Insets {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
 }
 
 impl RenderGrid {
