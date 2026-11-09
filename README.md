@@ -34,6 +34,8 @@ A fast, minimal, GPU-accelerated terminal emulator for macOS on Apple Silicon, w
 - A recent stable Rust toolchain (Rust 1.88 or newer). Install it with [rustup](https://rustup.rs).
 - A monospace font. [JetBrains Mono](https://www.jetbrains.com/lp/mono/) is used by default; any installed monospace font can be selected in the settings.
 
+<img width="2206" height="1468" alt="image" src="https://github.com/user-attachments/assets/147874a4-ab8c-4c7b-a267-b1f221ad7063" />
+
 ## Getting started
 
 ### Build and run
