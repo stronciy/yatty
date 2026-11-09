@@ -94,7 +94,7 @@ impl App {
         };
         match Renderer::new(state.window.clone(), size.width, size.height, font) {
             Ok(mut renderer) => {
-                renderer.set_insets(window_insets(scale));
+                renderer.fit_insets(window_insets(scale, self.settings.footer.enabled));
                 state.renderer = renderer;
             }
             Err(err) => tracing::error!("cannot apply font: {err}"),
@@ -137,7 +137,7 @@ impl ApplicationHandler for App {
             self.font_spec(scale),
         )
         .expect("renderer");
-        renderer.set_insets(window_insets(scale));
+        renderer.fit_insets(window_insets(scale, self.settings.footer.enabled));
         let (cols, rows) = Self::grid_size(&renderer, size.width, size.height);
         let reserved = u16::from(self.settings.footer.enabled);
         let session = Session::spawn(&SpawnOptions {
@@ -185,6 +185,10 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 state.renderer.resize(size.width, size.height);
+                let scale = state.window.scale_factor() as f32;
+                state
+                    .renderer
+                    .fit_insets(window_insets(scale, state.footer.is_some()));
                 let (cols, rows) = Self::grid_size(&state.renderer, size.width, size.height);
                 let reserved = u16::from(state.footer.is_some());
                 let _ = state
@@ -299,12 +303,12 @@ impl ApplicationHandler for App {
 }
 
 /// Padding around the terminal content, in logical points scaled to physical pixels.
-fn window_insets(scale: f32) -> render::Insets {
+fn window_insets(scale: f32, footer: bool) -> render::Insets {
     render::Insets {
         left: 14.0 * scale,
         top: 12.0 * scale,
         right: 14.0 * scale,
-        bottom: 16.0 * scale,
+        bottom: if footer { 0.0 } else { 16.0 * scale },
     }
 }
 

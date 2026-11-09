@@ -187,8 +187,18 @@ impl Renderer {
         })
     }
 
-    pub fn set_insets(&mut self, insets: Insets) {
-        self.insets = insets;
+    /// Sets the padding around the content. The space left over after fitting whole rows
+    /// is added to the top, so the last row (the footer bar) keeps exactly one row height.
+    pub fn fit_insets(&mut self, base: Insets) {
+        let height = self.config.height as f32;
+        let rows = ((height - base.top - base.bottom) / self.cell_h)
+            .floor()
+            .max(1.0);
+        let leftover = (height - base.top - base.bottom - rows * self.cell_h).max(0.0);
+        self.insets = Insets {
+            top: base.top + leftover,
+            ..base
+        };
     }
 
     pub fn insets(&self) -> Insets {
